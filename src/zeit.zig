@@ -16,6 +16,38 @@ pub const Seconds = i64;
 pub const EnvConfig = struct {
     tz: ?[]const u8 = null,
     tzdir: ?[]const u8 = null,
+    /// Creates EnvConfig by retrieving values of TZ and TZDIR
+    /// from *environ_map*.
+    ///
+    /// If TZ is set to empty string, UTC is used.  If TZDIR is set to
+    /// empty string, it is ignored as if it was unset.
+    ///
+    /// Note that *environ_map* can be easily accessed on std.process.Init
+    /// when using "juicy main()".
+    pub fn fromEnvironMap(environ_map: *const std.process.Environ.Map) EnvConfig {
+        return .{
+            .tz = b: {
+                const s = environ_map.get("TZ") orelse break :b null;
+                break :b if (s.len == 0) ":Etc/UTC" else s;
+                // Following glibc convention, which uses UTC if the TZ envvar
+                // value is set to empty string.
+                //
+                // Note that glibc (as of 2.43) actually uses value "Universal", which is
+                // broken but ends up falling back to UTC (with 'Universal' as '%Z'
+                // timezone abbreviation).
+                //
+                // Technically this should be file path relative to /usr/share/zoneinfo
+                // which symlinks Etc/UTC to UTC, so ":UTC", but localFromEnv() would not recognize
+                // it since it requires this string to map to Location enum.
+                //
+                //
+            },
+            .tzdir = b: {
+                const s = environ_map.get("TZDIR") orelse break :b null;
+                break :b if (s.len == 0) null else s;
+            },
+        };
+    }
 };
 
 const ns_per_us = std.time.ns_per_us;
@@ -2197,6 +2229,14 @@ test Instant {
     // EnvConfig to support TZ and TZDIR environment variables
     const local_tz = try zeit.local(alloc, std.testing.io, .{});
     defer local_tz.deinit();
+
+    // You can use .fromEnvironMap() function to easily create EnvConfig
+    // from environment map:
+    //
+    //     pub fn main(init: std.process.Init) !void {
+    //         const local_tz = try zeit.local(init.gpa, init.io, .fromEnvironMap(init.environ_map) );
+    //         //...
+    //     }
 
     // Convert our instant to a new timezone
     const now_local = now.in(&local_tz);
