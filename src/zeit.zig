@@ -1833,16 +1833,36 @@ pub fn isLeapYear(year: i32) bool {
     return (year & (d - 1)) == 0;
 }
 
-/// returns the weekday given a number of days since the unix epoch
-/// https://howardhinnant.github.io/date_algorithms.html#weekday_from_days
+/// Returns the weekday given a number of days since the Unix epoch.
+/// https://www.benjoffe.com/fast-day-of-week
 pub fn weekdayFromDays(days: Days) Weekday {
-    return @enumFromInt(@mod((days + 4), 7));
+    const multiplier: u32 = (1 << 32) / 7;
+    const rotation: u32 = 0x95000000;
+    const product = @as(u32, @bitCast(days)) *% multiplier +% rotation;
+    const correction: u32 = @bitCast((days >> 1) + (days >> 4));
+    return @enumFromInt((product +% correction) >> 29);
 }
 
 test "weekdayFromDays" {
     try std.testing.expectEqual(.thu, weekdayFromDays(0));
     try std.testing.expectEqual(.sat, weekdayFromDays(-5));
     try std.testing.expectEqual(.wed, weekdayFromDays(-8));
+    try std.testing.expectEqual(.tue, weekdayFromDays(std.math.minInt(Days)));
+    try std.testing.expectEqual(.fri, weekdayFromDays(std.math.maxInt(Days)));
+
+    const ranges = [_][2]Days{
+        .{ std.math.minInt(Days), std.math.minInt(Days) + 10_000 },
+        .{ -10_000, 10_000 },
+        .{ std.math.maxInt(Days) - 10_000, std.math.maxInt(Days) },
+    };
+    for (ranges) |range| {
+        var days = range[0];
+        while (true) : (days += 1) {
+            const expected: u3 = @intCast(@mod(@as(i64, days) + 4, 7));
+            try std.testing.expectEqual(@as(Weekday, @enumFromInt(expected)), weekdayFromDays(days));
+            if (days == range[1]) break;
+        }
+    }
 }
 
 /// Ben Joffe's very fast 64-bit date algorithm
